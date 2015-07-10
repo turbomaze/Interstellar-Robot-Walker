@@ -30,12 +30,15 @@ var InterstellarWalker = (function() {
         //set up the three.js scene
         scene = new Physijs.Scene;
         camera = new THREE.PerspectiveCamera(
-            35, DIMS[0]/DIMS[1], 1, 1000
+            35, DIMS[0]/DIMS[1], 1, 10000
         );
-        camera.position.set(60, 50, 60);
-        camera.lookAt(scene.position);
-
-        controls = new THREE.OrbitControls(camera, $s('#canvas-container'));
+        controls = new THREE.GodControls(
+            camera, scene, $s('#canvas-container'), {
+                moveSpd: 0.87,
+                rotSpd: 0.016
+            }
+        );
+        controls.setCameraPosition(60, 50, 60);
 
         renderer = new THREE.WebGLRenderer({antialias: true});
         renderer.setSize(DIMS[0], DIMS[1]);
@@ -51,18 +54,44 @@ var InterstellarWalker = (function() {
         addFloor();
 
         //add boxes
-        addBox(20, 0, 0);
-        addBox(40, 2, 1);
-        addBox(55, -0.5, -0.5);
+        addBox(20, 40);
+        addBox(40, 42);
+
+        //add the robot
+        addRobot();
 
         //render
         requestAnimationFrame(render);
     }
 
     function render() {
-        scene.simulate();
-        renderer.render(scene, camera);
-        requestAnimationFrame(render);
+        scene.simulate(); //physics
+        controls.update(); //camera controller
+        renderer.render(scene, camera); //render the scene
+        requestAnimationFrame(render); //next frame
+    }
+
+    function addRobot() {
+        var limbLength = 25;
+        var limbRatio = 9; //length to thickness ratio
+        for (var ai = 0; ai < 4; ai++) {
+            var limb1 = getRobotLimb(limbLength, limbRatio);
+            limb1.position.x = ai*limbLength/limbRatio;
+            scene.add(limb1);
+        }
+    }
+
+    function getRobotLimb(length, ltr) {
+        var thickness = length/ltr;
+        var limb = new Physijs.BoxMesh(
+            new THREE.BoxGeometry(thickness, length, thickness),
+            new THREE.MeshLambertMaterial({
+                color: 0x888888
+            })
+        );
+        limb.position.set(0, length, 0);
+        limb.castShadow = true;
+        return limb;
     }
 
     function addBox(altitude, disp) {
@@ -73,7 +102,7 @@ var InterstellarWalker = (function() {
             })
         );
         box.position.x = disp;
-        box.position.z = disp;
+        box.position.z = 0;
         box.position.y = altitude;
         box.castShadow = true;
         scene.add(box);
@@ -81,7 +110,7 @@ var InterstellarWalker = (function() {
 
     function addFloor() {
         var floor = new Physijs.PlaneMesh(
-            new THREE.PlaneGeometry(100, 100),
+            new THREE.PlaneGeometry(1000, 1000),
             Physijs.createMaterial(new THREE.MeshBasicMaterial({
                 color: 0x3FCDCD, side: THREE.DoubleSide
             }), 0.7, 0.4),
