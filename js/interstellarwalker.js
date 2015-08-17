@@ -4,143 +4,222 @@
 | @author Anthony  |
 | @version 0.1     |
 | @date 2015/07/09 |
-| @edit 2015/07/09 |
+| @edit 2015/08/16 |
 \******************/
-
-Physijs.scripts.worker = 'js/physijs_worker.js';
-Physijs.scripts.ammo = 'ammo.js';
 
 var InterstellarWalker = (function() {
     'use strict';
 
     /**********
      * config */
-    var DIMS = [960, 500];
+    var DIMS = [720, 405];
+    var THICK = 0.55555; //thickness of the robot legs
+    var LEGL = 5; //length of the robot legs
 
     /*************
      * constants */
+    var timeStep = 1/60;
 
     /*********************
      * working variables */
-    var scene, camera, controls, renderer;
+    var world;
+    var camera, controls, scene, renderer;
+    var objs = [];
+    var constraints = [];
+    var currMotor = 0;
 
     /******************
      * work functions */
     function initInterstellarWalker() {
-        //set up the three.js scene
-        scene = new Physijs.Scene;
+        //init engine and renderer
+        initThree();
+        initCannon();
+
+        //add objects
+        var vertOff = LEGL/2 + 0.1;
+        var b1 = getBox(THICK, LEGL, THICK, 1, function(body) {
+            body.position = new CANNON.Vec3(0, vertOff, 0);
+            body.angularVelocity.set(0, 0, 0);
+            body.angularDamping = 0;
+        });
+        var b2 = getBox(THICK, LEGL, THICK, 1, function(body) {
+            body.position = new CANNON.Vec3(THICK, vertOff, 0);
+        });
+        var c1 = getCyl(THICK/4, 2*THICK, 1, function(body) {
+            body.position = new CANNON.Vec3(
+                THICK/2, (LEGL-THICK)/2 + vertOff, 0
+            );
+            body.collisionFilterGroup = 0;
+            body.quaternion = new CANNON.Quaternion(
+                Math.sqrt(2)/2, Math.sqrt(2)/2, 0, 0
+            );
+        });
+        addObj(b1);
+        addObj(b2);
+        addObj(c1);
+
+        //create hinge constraints
+        var cn1 = new CANNON.HingeConstraint(
+            b1[0],
+            c1[0], {
+                pivotA: new CANNON.Vec3(0, (LEGL-THICK)/2, 0),
+                axisA: new CANNON.Vec3(1, 0, 0),
+                pivotB: new CANNON.Vec3(0, -THICK/2, 0),
+                axisB: new CANNON.Vec3(0, 0, 0)
+            }
+        );
+        constraints.push(cn1);
+        var cn2 = new CANNON.HingeConstraint(
+            b2[0],
+            c1[0], {
+                pivotA: new CANNON.Vec3(0, (LEGL-THICK)/2, 0),
+                axisA: new CANNON.Vec3(1, 0, 0),
+                pivotB: new CANNON.Vec3(0, THICK/2, 0),
+                axisB: new CANNON.Vec3(0, 0, 0)
+            }
+        );
+        constraints.push(cn2);
+        for (var ci = 0; ci < constraints.length; ci++) {
+            world.addConstraint(constraints[ci]);
+        }
+
+        //prep the motors
+        cn1.setMotorSpeed(0.2);
+        cn2.setMotorSpeed(-0.2);
+
+        //let the games begin
+        animate();
+    }
+
+    function initCannon() {
+        world = new CANNON.World();
+        world.gravity.set(0, -9.81, 0);
+        world.broadphase = new CANNON.NaiveBroadphase();
+        world.solver.iterations = 10;
+
+        //add the floor
+        var floor = getFloor();
+        addObj(floor);
+    }
+
+    function initThree() {
+        //scene and camera
+        scene = new THREE.Scene();
         camera = new THREE.PerspectiveCamera(
-            35, DIMS[0]/DIMS[1], 1, 10000
+            75, DIMS[0]/DIMS[1], 1, 1000
         );
         controls = new THREE.GodControls(
             camera, scene, $s('#canvas-container'), {
-                moveSpd: 0.87,
+                moveSpd: 0.27,
                 rotSpd: 0.016
             }
         );
-        controls.setCameraPosition(60, 50, 60);
+        controls.setCameraPosition(0, 4, 5);
 
+        //renderer
         renderer = new THREE.WebGLRenderer({antialias: true});
         renderer.setSize(DIMS[0], DIMS[1]);
-        renderer.setClearColor(0xF0FAFC);
-        renderer.shadowMapEnabled = true;
-		renderer.shadowMapSoft = true;
         $s('#canvas-container').appendChild(renderer.domElement);
-
-        //add lights
-        addLights();
-
-        //add the floor
-        addFloor();
-
-        //add boxes
-        addBox(20, 40);
-        addBox(40, 42);
-
-        //add the robot
-        addRobot();
-
-        //render
-        requestAnimationFrame(render);
     }
 
-    function render() {
-        scene.simulate(); //physics
-        controls.update(); //camera controller
-        renderer.render(scene, camera); //render the scene
-        requestAnimationFrame(render); //next frame
+    function animate() {
+        requestAnimationFrame(animate);
+        updatePhysics();
+        render();
     }
 
-    function addRobot() {
-        var limbLength = 25;
-        var limbRatio = 9; //length to thickness ratio
-        for (var ai = 0; ai < 4; ai++) {
-            var limb1 = getRobotLimb(limbLength, limbRatio);
-            limb1.position.x = ai*limbLength/limbRatio;
-            scene.add(limb1);
+    function updatePhysics() {
+        //step the physics world
+        world.step(timeStep);
+
+        if (Math.random() < 0.05) {
+            constraints[currMotor].disableMotor();
+            constraints[1 - currMotor].enableMotor();
+            currMotor = 1 - currMotor;
+        }
+
+        //copy coordinates from Cannon.js to Three.js
+        for (var ai = 0; ai < objs.length; ai++) {
+            objs[ai][1].position.copy(objs[ai][0].position);
+            objs[ai][1].quaternion.copy(objs[ai][0].quaternion);
         }
     }
 
-    function getRobotLimb(length, ltr) {
-        var thickness = length/ltr;
-        var limb = new Physijs.BoxMesh(
-            new THREE.BoxGeometry(thickness, length, thickness),
-            new THREE.MeshLambertMaterial({
-                color: 0x888888
-            })
-        );
-        limb.position.set(0, length, 0);
-        limb.castShadow = true;
-        return limb;
+    function render() {
+        renderer.render(scene, camera);
+        controls.update();
     }
 
-    function addBox(altitude, disp) {
-        var box = new Physijs.BoxMesh(
-            new THREE.BoxGeometry(5, 5, 5),
-            new THREE.MeshLambertMaterial({
-                color: 0x888888
-            })
-        );
-        box.position.x = disp;
-        box.position.z = 0;
-        box.position.y = altitude;
-        box.castShadow = true;
-        scene.add(box);
+    function addObj(pair) {
+        world.addBody(pair[0]);
+        scene.add(pair[1]);
+        objs.push(pair);
     }
 
-    function addFloor() {
-        var floor = new Physijs.PlaneMesh(
-            new THREE.PlaneGeometry(1000, 1000),
-            Physijs.createMaterial(new THREE.MeshBasicMaterial({
-                color: 0x3FCDCD, side: THREE.DoubleSide
-            }), 0.7, 0.4),
-            0
-        );
-        floor.rotation.x = -Math.PI/2;
-        floor.receiveShadow = true;
-        scene.add(floor);
+    function getCyl(r, h, mass, bodyFunc) {
+        //cannon.js
+        var shape = new CANNON.Cylinder(r, r, h, 32);
+        var body = new CANNON.Body({
+            mass: mass
+        });
+        body.addShape(shape);
+        bodyFunc = bodyFunc || function() {};
+        bodyFunc(body);
+
+        //three.js
+        var geometry = new THREE.CylinderGeometry(r, r, h, 32);
+        var material = new THREE.MeshBasicMaterial({
+            color: 0xff0000, wireframe: true
+        });
+        var mesh = new THREE.Mesh(geometry, material);
+
+        return [body, mesh];
     }
 
-    function addLights() {
-        var dirlight = new THREE.DirectionalLight(0xFFFFFF);
-		dirlight.position.set(35, 60, -20);
-		dirlight.target.position.copy(scene.position);
-		dirlight.castShadow = true;
-		dirlight.shadowCameraLeft = -60;
-		dirlight.shadowCameraTop = -60;
-		dirlight.shadowCameraRight = 60;
-		dirlight.shadowCameraBottom = 60;
-		dirlight.shadowCameraNear = 5;
-		dirlight.shadowCameraFar = 200;
-        dirlight.shadowCameraVisible = false;
-		dirlight.shadowBias = -.0001
-		dirlight.shadowMapWidth = dirlight.shadowMapHeight = 2048;
-		dirlight.shadowDarkness = .7;
-		scene.add(dirlight);
+    function getBox(l, h, w, mass, bodyFunc) {
+        //cannon.js
+        var shape = new CANNON.Box(new CANNON.Vec3(l/2, h/2, w/2));
+        var body = new CANNON.Body({
+            mass: mass
+        });
+        body.addShape(shape);
+        bodyFunc = bodyFunc || function() {};
+        bodyFunc(body);
+
+        //three.js
+        var geometry = new THREE.BoxGeometry(l, h, w);
+        var material = new THREE.MeshBasicMaterial({
+            color: 0xff0000, wireframe: true
+        });
+        var mesh = new THREE.Mesh(geometry, material);
+
+        return [body, mesh];
     }
 
-    /***********
-     * objects */
+    function getFloor() {
+        //cannon.js
+        var groundBody = new CANNON.Body({
+            mass: 0,
+            position: new CANNON.Vec3(0, 0, 0),
+            quaternion: new CANNON.Quaternion(
+                0, Math.sqrt(2)/2, Math.sqrt(2)/2, 0
+            )
+        });
+        var groundShape = new CANNON.Plane();
+        groundBody.addShape(groundShape);
+
+        //three.js
+        var geometry = new THREE.PlaneGeometry(100, 100);
+        var material = new THREE.MeshBasicMaterial({
+            color: 0x3FCDCD, side: THREE.DoubleSide
+        })
+        var groundMesh = new THREE.Mesh(geometry, material);
+
+        return [groundBody, groundMesh];
+    }
+
+    /********************
+     * helper functions */
     function $s(id) { //for convenience
         if (id.charAt(0) !== '#') return false;
         return document.getElementById(id.substring(1));
