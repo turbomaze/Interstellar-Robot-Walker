@@ -93,14 +93,14 @@ THREE.GodControls = function(camera, scene, canvContainer, params) {
     //event listeners
     window.addEventListener('keydown', function(e) {
 		self.keys[e.keyCode] = true;
-		if (self.focus) {
+		if (self.focus && [37, 38, 39, 40].indexOf(e.keyCode) !== -1) {
 			e.stopPropagation();
 			e.preventDefault();
 		}
 	});
 	window.addEventListener('keyup', function(e) {
 		self.keys[e.keyCode] = false;
-		if (self.focus) {
+		if (self.focus && [37, 38, 39, 40].indexOf(e.keyCode) !== -1) {
 			e.stopPropagation();
 			e.preventDefault();
 		}

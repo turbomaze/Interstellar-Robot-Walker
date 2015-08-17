@@ -12,13 +12,15 @@ var InterstellarWalker = (function() {
 
     /**********
      * config */
-    var DIMS = [720, 405];
+    var DIMS = [720, 405]; //canvas dims
     var THICK = 0.55555; //thickness of the robot legs
     var LEGL = 5; //length of the robot legs
 
     /*************
      * constants */
     var timeStep = 1/60;
+    var motorInc = 12; //how many physics steps to run the motor for
+    var motorSpd = 0.35; //the motor speed for each of those steps
 
     /*********************
      * working variables */
@@ -26,7 +28,7 @@ var InterstellarWalker = (function() {
     var camera, controls, scene, renderer;
     var objs = [];
     var constraints = [];
-    var currMotor = 0;
+    var motorSteps = [];
 
     /******************
      * work functions */
@@ -69,6 +71,7 @@ var InterstellarWalker = (function() {
             }
         );
         constraints.push(cn1);
+        motorSteps.push(-1);
         var cn2 = new CANNON.HingeConstraint(
             b2[0],
             c1[0], {
@@ -79,19 +82,17 @@ var InterstellarWalker = (function() {
             }
         );
         constraints.push(cn2);
+        motorSteps.push(-1);
         for (var ci = 0; ci < constraints.length; ci++) {
             world.addConstraint(constraints[ci]);
         }
-
-        //prep the motors
-        cn1.setMotorSpeed(0.2);
-        cn2.setMotorSpeed(-0.2);
 
         //let the games begin
         animate();
     }
 
     function initCannon() {
+        //setup the world
         world = new CANNON.World();
         world.gravity.set(0, -9.81, 0);
         world.broadphase = new CANNON.NaiveBroadphase();
@@ -100,6 +101,27 @@ var InterstellarWalker = (function() {
         //add the floor
         var floor = getFloor();
         addObj(floor);
+
+        //event listeners for manual motor control
+        document.addEventListener('keyup', function(e) {
+            if (e.keyCode === 86) { //v
+                motorSteps[0] = motorInc;
+                constraints[0].setMotorSpeed(motorSpd);
+                constraints[0].enableMotor();
+            } else if (e.keyCode === 78) { //n
+                motorSteps[1] = motorInc;
+                constraints[1].setMotorSpeed(motorSpd);
+                constraints[1].enableMotor();
+            } else if (e.keyCode === 67) { //c
+                motorSteps[0] = motorInc;
+                constraints[0].setMotorSpeed(-motorSpd);
+                constraints[0].enableMotor();
+            } else if (e.keyCode === 77) { //m
+                motorSteps[1] = motorInc;
+                constraints[1].setMotorSpeed(-motorSpd);
+                constraints[1].enableMotor();
+            }
+        });
     }
 
     function initThree() {
@@ -132,10 +154,13 @@ var InterstellarWalker = (function() {
         //step the physics world
         world.step(timeStep);
 
-        if (Math.random() < 0.05) {
-            constraints[currMotor].disableMotor();
-            constraints[1 - currMotor].enableMotor();
-            currMotor = 1 - currMotor;
+        //move the motors
+        for (var ai = 0; ai < motorSteps.length; ai++) {
+            if (motorSteps[ai] === 0) {
+                constraints[ai].disableMotor();
+                motorSteps[ai] = -1;
+            }
+            if (motorSteps[ai] > -1) motorSteps[ai] -= 1;
         }
 
         //copy coordinates from Cannon.js to Three.js
