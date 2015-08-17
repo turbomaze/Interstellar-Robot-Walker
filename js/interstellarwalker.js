@@ -2,7 +2,7 @@
 |   Interstellar   |
 |   Robot Walker   |
 | @author Anthony  |
-| @version 0.1     |
+| @version v0.2    |
 | @date 2015/07/09 |
 | @edit 2015/08/16 |
 \******************/
